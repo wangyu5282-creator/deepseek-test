@@ -8,7 +8,7 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
 const client = new OpenAI({
-  apiKey: process.env.DEEPSEEK_API_KEY || 'sk-9fd9ca1b495147ffa13d1e79dd251cdb',
+  apiKey: process.env.DEEPSEEK_API_KEY,
   baseURL: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com',
 });
 
