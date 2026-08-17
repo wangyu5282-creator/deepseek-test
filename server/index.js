@@ -21,28 +21,11 @@ function sseSend(res, event, data) {
 
 const ALLOWED_EFFORTS = new Set(['low', 'high', 'max']);
 
-// 简单口令保护：设置了 ACCESS_PASSWORD 才启用校验，不设置就保持开放（本地调试用）
-const ACCESS_PASSWORD = process.env.ACCESS_PASSWORD || '';
-
-function checkAccess(req, res, next) {
-  if (!ACCESS_PASSWORD) return next();
-  const provided = req.get('X-Access-Password') || '';
-  if (provided !== ACCESS_PASSWORD) {
-    return res.status(401).json({ error: '口令错误' });
-  }
-  next();
-}
-
 app.post('/api/login', (req, res) => {
-  if (!ACCESS_PASSWORD) return res.json({ ok: true });
-  const { password } = req.body || {};
-  if (password !== ACCESS_PASSWORD) {
-    return res.status(401).json({ ok: false, error: '口令错误' });
-  }
   res.json({ ok: true });
 });
 
-app.post('/api/chat', checkAccess, async (req, res) => {
+app.post('/api/chat', async (req, res) => {
   const { messages, model, webSearch, instructions, reasoningEffort } = req.body || {};
 
   if (!Array.isArray(messages) || messages.length === 0) {
