@@ -22,9 +22,5 @@
       "src": "/(.*)",
       "dest": "web/$1"
     }
-  ],
-  "env": {
-    "DEEPSEEK_API_KEY": "",
-    "ACCESS_PASSWORD": ""
-  }
+  ]
 }
