@@ -3,7 +3,6 @@ import './App.css';
 import { loadConversations, saveConversations, createConversation } from './storage';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:3001';
-const PASSWORD_STORAGE_KEY = 'deepseek-chat-password';
 const MODELS = [
   { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash' },
   { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro' },
@@ -15,12 +14,6 @@ const EFFORTS = [
 ];
 
 function App() {
-  const [password, setPassword] = useState(() => sessionStorage.getItem(PASSWORD_STORAGE_KEY) || '');
-  const [unlocked, setUnlocked] = useState(false);
-  const [loginInput, setLoginInput] = useState('');
-  const [loginError, setLoginError] = useState('');
-  const [loggingIn, setLoggingIn] = useState(false);
-
   const [conversations, setConversations] = useState(() => {
     const loaded = loadConversations();
     return loaded.length ? loaded : [createConversation()];
@@ -37,18 +30,6 @@ function App() {
   const active = conversations.find((c) => c.id === activeId) || conversations[0];
 
   useEffect(() => {
-    if (!password) return;
-    verifyPassword(password).then((ok) => {
-      if (ok) {
-        setUnlocked(true);
-      } else {
-        sessionStorage.removeItem(PASSWORD_STORAGE_KEY);
-        setPassword('');
-      }
-    });
-  }, [password]);
-
-  useEffect(() => {
     saveConversations(conversations);
   }, [conversations]);
 
@@ -60,36 +41,6 @@ function App() {
     setConversations((prev) =>
       prev.map((c) => (c.id === activeId ? updater(c) : c))
     );
-  }
-
-  async function verifyPassword(pwd) {
-    try {
-      const res = await fetch(`${API_BASE}/api/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: pwd }),
-      });
-      if (!res.ok) return false;
-      const data = await res.json();
-      return !!data.ok;
-    } catch {
-      return false;
-    }
-  }
-
-  async function handleLogin(e) {
-    e.preventDefault();
-    setLoggingIn(true);
-    setLoginError('');
-    const ok = await verifyPassword(loginInput);
-    setLoggingIn(false);
-    if (ok) {
-      sessionStorage.setItem(PASSWORD_STORAGE_KEY, loginInput);
-      setPassword(loginInput);
-      setUnlocked(true);
-    } else {
-      setLoginError('口令错误，请重新输入');
-    }
   }
 
   function handleNewConversation() {
@@ -170,7 +121,6 @@ function App() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(password ? { 'X-Access-Password': password } : {}),
         },
         body: JSON.stringify({
           messages: requestMessages,
@@ -180,13 +130,6 @@ function App() {
         }),
         signal: controller.signal,
       });
-
-      if (response.status === 401) {
-        sessionStorage.removeItem(PASSWORD_STORAGE_KEY);
-        setPassword('');
-        setUnlocked(false);
-        throw new Error('登录已失效，请重新输入口令');
-      }
 
       if (!response.ok || !response.body) {
         throw new Error(`请求失败: ${response.status}`);
@@ -286,27 +229,6 @@ function App() {
       e.preventDefault();
       handleSend();
     }
-  }
-
-  if (!unlocked) {
-    return (
-      <div className="login-screen">
-        <form className="login-box" onSubmit={handleLogin}>
-          <h1>访问口令</h1>
-          <input
-            type="password"
-            value={loginInput}
-            onChange={(e) => setLoginInput(e.target.value)}
-            placeholder="请输入访问口令"
-            autoFocus
-          />
-          {loginError && <div className="login-error">{loginError}</div>}
-          <button type="submit" disabled={loggingIn || !loginInput.trim()}>
-            {loggingIn ? '验证中…' : '进入'}
-          </button>
-        </form>
-      </div>
-    );
   }
 
   return (
