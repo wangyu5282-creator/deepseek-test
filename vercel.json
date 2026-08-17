@@ -24,7 +24,7 @@
     }
   ],
   "env": {
-    "DEEPSEEK_API_KEY": "@deepseek_api_key",
-    "ACCESS_PASSWORD": "@access_password"
+    "DEEPSEEK_API_KEY": "",
+    "ACCESS_PASSWORD": ""
   }
 }
