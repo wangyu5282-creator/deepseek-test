@@ -21,6 +21,16 @@ function sseSend(res, event, data) {
 
 const ALLOWED_EFFORTS = new Set(['low', 'high', 'max']);
 
+function buildInstructions(base) {
+  const now = new Date();
+  const beijingTime = new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    dateStyle: 'full',
+    timeStyle: 'medium',
+  }).format(now);
+  return `${base || 'You are a helpful assistant.'}\n\nCurrent date and time: ${beijingTime} (北京时间, UTC+8).`;
+}
+
 app.post('/api/login', (req, res) => {
   res.json({ ok: true });
 });
@@ -43,7 +53,7 @@ app.post('/api/chat', async (req, res) => {
 
   const requestPayload = {
     model: chosenModel,
-    instructions: instructions || 'You are a helpful assistant.',
+    instructions: buildInstructions(instructions),
     input,
     stream: true,
     reasoning: { effort: chosenEffort },
