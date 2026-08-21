@@ -6,7 +6,9 @@ const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.MODE === 'pro
 const MODELS = [
   { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash' },
   { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro' },
+  { id: 'deepseek-v4-flash-vision-exp', label: 'DeepSeek V4 Flash Vision（多模态）' },
 ];
+const VISION_MODEL = 'deepseek-v4-flash-vision-exp';
 const EFFORTS = [
   { id: 'low', label: '推理强度：低（更快）' },
   { id: 'high', label: '推理强度：高' },
@@ -20,6 +22,7 @@ function App() {
   });
   const [activeId, setActiveId] = useState(() => conversations[0].id);
   const [input, setInput] = useState('');
+  const [pendingImages, setPendingImages] = useState([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [lastContentTtft, setLastContentTtft] = useState(null);
   const [lastCommentaryTtft, setLastCommentaryTtft] = useState(null);
@@ -79,16 +82,26 @@ function App() {
 
   async function handleSend() {
     const text = input.trim();
-    if (!text || isStreaming || !active) return;
+    if ((!text && pendingImages.length === 0) || isStreaming || !active) return;
 
     const conversationId = active.id;
     const model = active.model;
     const webSearch = active.webSearch;
     const reasoningEffort = active.reasoningEffort || 'low';
-    const requestMessages = [...active.messages, { role: 'user', content: text }];
-    const newTitle = active.messages.length === 0 ? text.slice(0, 24) : active.title;
 
-    const userMessage = { role: 'user', content: text };
+    const images = pendingImages;
+    const content =
+      images.length > 0
+        ? [
+            ...(text ? [{ type: 'text', text }] : []),
+            ...images.map((img) => ({ type: 'image', imageUrl: img.dataUrl })),
+          ]
+        : text;
+
+    const requestMessages = [...active.messages, { role: 'user', content }];
+    const newTitle = active.messages.length === 0 ? text.slice(0, 24) || '图片消息' : active.title;
+
+    const userMessage = { role: 'user', content };
     const assistantMessage = {
       role: 'assistant',
       content: '',
@@ -108,6 +121,7 @@ function App() {
       )
     );
     setInput('');
+    setPendingImages([]);
     setIsStreaming(true);
     setLastContentTtft(null);
     setLastCommentaryTtft(null);
@@ -224,6 +238,33 @@ function App() {
     abortRef.current?.abort();
   }
 
+  function fileToDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function handleImageSelect(e) {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (files.length === 0) return;
+    const accepted = files.filter((f) => /^image\/(jpeg|png|gif|webp)$/.test(f.type));
+    if (accepted.length < files.length) {
+      alert('仅支持 JPEG/PNG/GIF/WebP 图片');
+    }
+    const withDataUrls = await Promise.all(
+      accepted.map(async (f) => ({ dataUrl: await fileToDataUrl(f), name: f.name }))
+    );
+    setPendingImages((prev) => [...prev, ...withDataUrls]);
+  }
+
+  function handleRemoveImage(index) {
+    setPendingImages((prev) => prev.filter((_, i) => i !== index));
+  }
+
   function handleKeyDown(e) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -314,7 +355,23 @@ function App() {
               <div className="message-role">{m.role === 'user' ? '你' : 'DeepSeek'}</div>
               <div className="message-content">
                 {m.searching && <div className="searching-indicator">正在联网搜索...</div>}
-                {m.content || (isStreaming && idx === active.messages.length - 1 ? '思考中…' : '')}
+                {Array.isArray(m.content) ? (
+                  <>
+                    <div className="message-images">
+                      {m.content
+                        .filter((b) => b.type === 'image')
+                        .map((b, i) => (
+                          <img key={i} src={b.imageUrl} alt="上传的图片" className="message-image" />
+                        ))}
+                    </div>
+                    {m.content
+                      .filter((b) => b.type === 'text')
+                      .map((b) => b.text)
+                      .join('\n')}
+                  </>
+                ) : (
+                  m.content || (isStreaming && idx === active.messages.length - 1 ? '思考中…' : '')
+                )}
               </div>
               {m.role === 'assistant' && m.searchQueries?.length > 0 && (
                 <div className="message-queries">
@@ -358,23 +415,56 @@ function App() {
         </div>
 
         <footer className="composer">
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="输入消息，Enter 发送，Shift+Enter 换行"
-            rows={2}
-            disabled={isStreaming}
-          />
-          {isStreaming ? (
-            <button className="stop-btn" onClick={handleStop}>
-              停止
-            </button>
-          ) : (
-            <button className="send-btn" onClick={handleSend} disabled={!input.trim()}>
-              发送
-            </button>
+          {pendingImages.length > 0 && (
+            <div className="pending-images">
+              {pendingImages.map((img, i) => (
+                <div key={i} className="pending-image">
+                  <img src={img.dataUrl} alt={img.name} />
+                  <button
+                    className="remove-image-btn"
+                    onClick={() => handleRemoveImage(i)}
+                    aria-label="移除图片"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
           )}
+          <div className="composer-row">
+            <label className="upload-image-btn" title="上传图片（自动切换到多模态模型）">
+              📷
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/gif,image/webp"
+                multiple
+                onChange={handleImageSelect}
+                disabled={isStreaming}
+                hidden
+              />
+            </label>
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="输入消息，Enter 发送，Shift+Enter 换行"
+              rows={2}
+              disabled={isStreaming}
+            />
+            {isStreaming ? (
+              <button className="stop-btn" onClick={handleStop}>
+                停止
+              </button>
+            ) : (
+              <button
+                className="send-btn"
+                onClick={handleSend}
+                disabled={!input.trim() && pendingImages.length === 0}
+              >
+                发送
+              </button>
+            )}
+          </div>
         </footer>
       </main>
     </div>

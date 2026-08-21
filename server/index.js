@@ -12,7 +12,18 @@ const client = new OpenAI({
   baseURL: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com',
 });
 
-const ALLOWED_MODELS = new Set(['deepseek-v4-flash', 'deepseek-v4-pro']);
+const ALLOWED_MODELS = new Set(['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-v4-flash-vision-exp']);
+const VISION_MODEL = 'deepseek-v4-flash-vision-exp';
+
+function toResponsesContent(content) {
+  if (typeof content === 'string' || !Array.isArray(content)) return content;
+  return content.map((block) => {
+    if (block.type === 'image') {
+      return { type: 'input_image', image_url: block.imageUrl, detail: block.detail || 'auto' };
+    }
+    return { type: 'input_text', text: block.text || '' };
+  });
+}
 
 function sseSend(res, event, data) {
   res.write(`event: ${event}\n`);
@@ -41,7 +52,8 @@ app.post('/api/chat', async (req, res) => {
   if (!Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ error: 'messages 不能为空' });
   }
-  const chosenModel = ALLOWED_MODELS.has(model) ? model : 'deepseek-v4-flash';
+  const hasImage = messages.some((m) => Array.isArray(m.content) && m.content.some((b) => b.type === 'image'));
+  const chosenModel = hasImage ? VISION_MODEL : (ALLOWED_MODELS.has(model) ? model : 'deepseek-v4-flash');
   const chosenEffort = ALLOWED_EFFORTS.has(reasoningEffort) ? reasoningEffort : 'low';
 
   res.setHeader('Content-Type', 'text/event-stream');
@@ -49,7 +61,7 @@ app.post('/api/chat', async (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders?.();
 
-  const input = messages.map((m) => ({ role: m.role, content: m.content }));
+  const input = messages.map((m) => ({ role: m.role, content: toResponsesContent(m.content) }));
 
   const requestPayload = {
     model: chosenModel,
