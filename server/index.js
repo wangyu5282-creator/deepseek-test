@@ -117,6 +117,11 @@ app.post('/api/chat', async (req, res) => {
 
       const stream = await client.responses.create(requestPayload);
       const pendingCalls = [];
+      // thinking 模式下，reasoning 输出项必须原样回传给下一轮请求，否则报
+      // "reasoning_text in the thinking mode must be passed back"。response.completed
+      // 里的 response.output 已经是该轮全部输出项（reasoning/function_call/message...）的
+      // 原始顺序数组，工具调用后直接整段重放进 input，不用自己拼 function_call 条目。
+      let roundOutput = [];
 
       for await (const event of stream) {
         switch (event.type) {
@@ -186,6 +191,7 @@ app.post('/api/chat', async (req, res) => {
             break;
 
           case 'response.completed':
+            roundOutput = event.response?.output || [];
             if (pendingCalls.length === 0) {
               sseSend(res, 'done', {
                 fullText,
@@ -212,10 +218,12 @@ app.post('/api/chat', async (req, res) => {
         return;
       }
 
-      // 模型请求调用工具（目前只有生图），执行后把 function_call / function_call_output 追加到 input 历史，进入下一轮
-      for (const call of pendingCalls) {
-        input.push({ type: 'function_call', call_id: call.callId, name: call.name, arguments: call.arguments });
+      // 模型请求调用工具（目前只有生图）。把这一轮完整的输出项（包含 reasoning，如果有）
+      // 按原始顺序整段重放进 input，thinking 模式下 reasoning 项必须回传，否则报 400；
+      // function_call 本身也在 roundOutput 里，不用再手动 push 一遍。
+      input.push(...roundOutput);
 
+      for (const call of pendingCalls) {
         if (call.name === 'generate_image') {
           sseSend(res, 'image_status', { status: 'generating' });
           let output;
