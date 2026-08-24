@@ -270,22 +270,37 @@ function App() {
     });
   }
 
-  async function handleImageSelect(e) {
-    const files = Array.from(e.target.files || []);
-    e.target.value = '';
+  async function addImageFiles(files) {
     if (files.length === 0) return;
     const accepted = files.filter((f) => /^image\/(jpeg|png|gif|webp)$/.test(f.type));
     if (accepted.length < files.length) {
       alert('仅支持 JPEG/PNG/GIF/WebP 图片');
     }
+    if (accepted.length === 0) return;
     const withDataUrls = await Promise.all(
-      accepted.map(async (f) => ({ dataUrl: await compressImage(f), name: f.name }))
+      accepted.map(async (f) => ({ dataUrl: await compressImage(f), name: f.name || '粘贴的图片' }))
     );
     setPendingImages((prev) => [...prev, ...withDataUrls]);
   }
 
+  function handleImageSelect(e) {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    addImageFiles(files);
+  }
+
   function handleRemoveImage(index) {
     setPendingImages((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function handlePaste(e) {
+    const files = Array.from(e.clipboardData?.items || [])
+      .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+      .map((item) => item.getAsFile())
+      .filter(Boolean);
+    if (files.length === 0) return;
+    e.preventDefault();
+    addImageFiles(files);
   }
 
   function handleKeyDown(e) {
@@ -470,7 +485,8 @@ function App() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="输入消息，Enter 发送，Shift+Enter 换行"
+              onPaste={handlePaste}
+              placeholder="输入消息，Enter 发送，Shift+Enter 换行（可直接 Ctrl+V 粘贴图片）"
               rows={2}
               disabled={isStreaming}
             />
