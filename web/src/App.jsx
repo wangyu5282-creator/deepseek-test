@@ -1,6 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import './App.css';
 import { loadConversations, saveConversations, createConversation } from './storage';
+
+function Markdown({ children }) {
+  if (!children) return null;
+  return (
+    <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown>
+  );
+}
 
 const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.MODE === 'production' ? '' : 'http://localhost:3001');
 const MODELS = [
@@ -422,13 +431,30 @@ function App() {
                           <img key={i} src={b.imageUrl} alt="上传的图片" className="message-image" />
                         ))}
                     </div>
-                    {m.content
-                      .filter((b) => b.type === 'text')
-                      .map((b) => b.text)
-                      .join('\n')}
+                    {m.role === 'assistant' ? (
+                      <Markdown>
+                        {m.content
+                          .filter((b) => b.type === 'text')
+                          .map((b) => b.text)
+                          .join('\n')}
+                      </Markdown>
+                    ) : (
+                      m.content
+                        .filter((b) => b.type === 'text')
+                        .map((b) => b.text)
+                        .join('\n')
+                    )}
                   </>
+                ) : m.role === 'assistant' ? (
+                  m.content ? (
+                    <Markdown>{m.content}</Markdown>
+                  ) : isStreaming && idx === active.messages.length - 1 ? (
+                    '思考中…'
+                  ) : (
+                    ''
+                  )
                 ) : (
-                  m.content || (isStreaming && idx === active.messages.length - 1 ? '思考中…' : '')
+                  m.content
                 )}
               </div>
               {m.role === 'assistant' && m.searchQueries?.length > 0 && (
