@@ -486,6 +486,25 @@
   object-fit: cover;
 }
 
+.generated-images {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+.generated-image {
+  max-width: 320px;
+  max-height: 320px;
+  border-radius: 10px;
+  object-fit: contain;
+}
+
+.image-error {
+  font-size: 12px;
+  color: #e53e3e;
+}
+
 .composer textarea {
   flex: 1;
   resize: none;

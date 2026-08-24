@@ -134,6 +134,9 @@ function App() {
       searchTtftMs: null,
       reasoningTtftMs: null,
       searching: false,
+      generatingImage: false,
+      generatedImages: [],
+      imageError: null,
       sources: [],
       searchQueries: [],
     };
@@ -248,6 +251,18 @@ function App() {
         updated = { ...last, sources: [...(last.sources || []), data] };
       } else if (eventType === 'query') {
         updated = { ...last, searchQueries: [...(last.searchQueries || []), ...data.queries] };
+      } else if (eventType === 'image_status') {
+        updated = {
+          ...last,
+          generatingImage: data.status === 'generating',
+          imageError: data.status === 'failed' ? data.message : last.imageError,
+        };
+      } else if (eventType === 'image_generated') {
+        updated = {
+          ...last,
+          generatingImage: false,
+          generatedImages: [...(last.generatedImages || []), { url: data.url, prompt: data.prompt }],
+        };
       } else if (eventType === 'reasoning_delta') {
         updated = { ...last, reasoning: (last.reasoning || '') + data.text };
       } else if (eventType === 'delta') {
@@ -434,6 +449,7 @@ function App() {
               )}
               <div className="message-content">
                 {m.searching && <div className="searching-indicator">正在联网搜索...</div>}
+                {m.generatingImage && <div className="searching-indicator">正在生成图片...</div>}
                 {Array.isArray(m.content) ? (
                   <>
                     <div className="message-images">
@@ -469,6 +485,21 @@ function App() {
                   m.content
                 )}
               </div>
+              {m.role === 'assistant' && m.generatedImages?.length > 0 && (
+                <div className="generated-images">
+                  {m.generatedImages.map((img, i) => (
+                    <img
+                      key={i}
+                      src={img.url}
+                      alt={img.prompt || '生成的图片'}
+                      className="generated-image"
+                    />
+                  ))}
+                </div>
+              )}
+              {m.role === 'assistant' && m.imageError && (
+                <div className="image-error">图片生成失败：{m.imageError}</div>
+              )}
               {m.role === 'assistant' && m.searchQueries?.length > 0 && (
                 <div className="message-queries">
                   <div className="queries-label">检索词</div>

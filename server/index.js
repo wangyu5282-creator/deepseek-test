@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import OpenAI from 'openai';
+import { generateImage, findLatestImageUrl } from './imageGen.js';
 
 const app = express();
 app.use(cors());
@@ -14,6 +15,29 @@ const client = new OpenAI({
 
 const ALLOWED_MODELS = new Set(['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-v4-flash-vision-exp']);
 const VISION_MODEL = 'deepseek-v4-flash-vision-exp';
+
+const IMAGE_GEN_TOOL = {
+  type: 'function',
+  name: 'generate_image',
+  description:
+    '根据文字描述生成一张图片（文生图）。如果用户想基于对话中已经出现过的图片做修改/编辑（图生图），把 use_reference_image 设为 true，会自动使用对话中最近一张图片作为参考图。',
+  parameters: {
+    type: 'object',
+    properties: {
+      prompt: {
+        type: 'string',
+        description: '详细描述要生成或编辑成什么样的图片，尽量包含主体、风格、构图、色彩等细节',
+      },
+      use_reference_image: {
+        type: 'boolean',
+        description: '是否使用对话中最近出现的一张图片作为参考图进行图生图编辑，而不是从零生成新图，默认 false',
+      },
+    },
+    required: ['prompt'],
+  },
+};
+
+const MAX_TOOL_ROUNDS = 4;
 
 function toResponsesContent(content) {
   if (typeof content === 'string' || !Array.isArray(content)) return content;
@@ -61,20 +85,10 @@ app.post('/api/chat', async (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders?.();
 
-  const input = messages.map((m) => ({ role: m.role, content: toResponsesContent(m.content) }));
+  let input = messages.map((m) => ({ role: m.role, content: toResponsesContent(m.content) }));
 
-  const requestPayload = {
-    model: chosenModel,
-    instructions: buildInstructions(instructions),
-    input,
-    stream: true,
-    reasoning: { effort: chosenEffort },
-  };
-
-  if (webSearch) {
-    requestPayload.tools = [{ type: 'web_search' }];
-    requestPayload.tool_choice = 'auto';
-  }
+  const tools = [IMAGE_GEN_TOOL];
+  if (webSearch) tools.push({ type: 'web_search' });
 
   const startedAt = Date.now();
   let contentTtftSent = false;
@@ -90,92 +104,144 @@ app.post('/api/chat', async (req, res) => {
   const itemFirstDeltaAt = new Map();
 
   try {
-    const stream = await client.responses.create(requestPayload);
+    for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+      const requestPayload = {
+        model: chosenModel,
+        instructions: buildInstructions(instructions),
+        input,
+        stream: true,
+        reasoning: { effort: chosenEffort },
+        tools,
+        tool_choice: 'auto',
+      };
 
-    for await (const event of stream) {
-      switch (event.type) {
-        case 'response.web_search_call.in_progress':
-        case 'response.web_search_call.searching':
-        case 'response.web_search_call.completed':
-          sseSend(res, 'search', { status: event.type.split('.').pop() });
-          break;
+      const stream = await client.responses.create(requestPayload);
+      const pendingCalls = [];
 
-        case 'response.output_item.done': {
-          const item = event.item;
-          if (item?.type === 'web_search_call' && item.status === 'completed') {
-            if (item.action?.type === 'open_page' && item.action.url) {
-              // 第一个 open_page 落地才算真正拿到搜索结果（search action 只是发出的检索词，还没有结果）
-              if (!searchTtftSent) {
-                searchTtftSent = true;
-                sseSend(res, 'search_ttft', { ms: Date.now() - startedAt });
-              }
-              const url = item.action.url.split('#ws_call_id=')[0];
-              if (!sources.some((s) => s.url === url)) {
-                const source = { url };
-                sources.push(source);
-                sseSend(res, 'source', source);
-              }
-            } else if (item.action?.type === 'search' && Array.isArray(item.action.queries)) {
-              const queries = item.action.queries
-                .map((q) => q.split('#ws_call_id=')[0].trim())
-                .filter(Boolean);
-              if (queries.length) {
-                sseSend(res, 'query', { queries });
-              }
-            }
-          } else if (item?.type === 'message' && item.id) {
-            // 此时的 phase 才是真实值（added 时永远是占位的 "final_answer"）
-            const firstDeltaAt = itemFirstDeltaAt.get(item.id);
-            if (firstDeltaAt != null) {
-              if (item.phase === 'commentary') {
-                if (!commentaryTtftSent) {
-                  commentaryTtftSent = true;
-                  sseSend(res, 'commentary_ttft', { ms: firstDeltaAt - startedAt });
+      for await (const event of stream) {
+        switch (event.type) {
+          case 'response.web_search_call.in_progress':
+          case 'response.web_search_call.searching':
+          case 'response.web_search_call.completed':
+            sseSend(res, 'search', { status: event.type.split('.').pop() });
+            break;
+
+          case 'response.output_item.done': {
+            const item = event.item;
+            if (item?.type === 'web_search_call' && item.status === 'completed') {
+              if (item.action?.type === 'open_page' && item.action.url) {
+                // 第一个 open_page 落地才算真正拿到搜索结果（search action 只是发出的检索词，还没有结果）
+                if (!searchTtftSent) {
+                  searchTtftSent = true;
+                  sseSend(res, 'search_ttft', { ms: Date.now() - startedAt });
                 }
-              } else if (!contentTtftSent) {
-                contentTtftSent = true;
-                sseSend(res, 'content_ttft', { ms: firstDeltaAt - startedAt });
+                const url = item.action.url.split('#ws_call_id=')[0];
+                if (!sources.some((s) => s.url === url)) {
+                  const source = { url };
+                  sources.push(source);
+                  sseSend(res, 'source', source);
+                }
+              } else if (item.action?.type === 'search' && Array.isArray(item.action.queries)) {
+                const queries = item.action.queries
+                  .map((q) => q.split('#ws_call_id=')[0].trim())
+                  .filter(Boolean);
+                if (queries.length) {
+                  sseSend(res, 'query', { queries });
+                }
+              }
+            } else if (item?.type === 'function_call') {
+              pendingCalls.push({ callId: item.call_id, name: item.name, arguments: item.arguments });
+            } else if (item?.type === 'message' && item.id) {
+              // 此时的 phase 才是真实值（added 时永远是占位的 "final_answer"）
+              const firstDeltaAt = itemFirstDeltaAt.get(item.id);
+              if (firstDeltaAt != null) {
+                if (item.phase === 'commentary') {
+                  if (!commentaryTtftSent) {
+                    commentaryTtftSent = true;
+                    sseSend(res, 'commentary_ttft', { ms: firstDeltaAt - startedAt });
+                  }
+                } else if (!contentTtftSent) {
+                  contentTtftSent = true;
+                  sseSend(res, 'content_ttft', { ms: firstDeltaAt - startedAt });
+                }
               }
             }
+            break;
           }
-          break;
+
+          case 'response.output_text.delta':
+            if (event.item_id && !itemFirstDeltaAt.has(event.item_id)) {
+              itemFirstDeltaAt.set(event.item_id, Date.now());
+            }
+            fullText += event.delta;
+            sseSend(res, 'delta', { text: event.delta });
+            break;
+
+          case 'response.reasoning_text.delta':
+            if (!reasoningTtftSent) {
+              reasoningTtftSent = true;
+              sseSend(res, 'reasoning_ttft', { ms: Date.now() - startedAt });
+            }
+            sseSend(res, 'reasoning_delta', { text: event.delta });
+            break;
+
+          case 'response.completed':
+            if (pendingCalls.length === 0) {
+              sseSend(res, 'done', {
+                fullText,
+                usage: event.response?.usage || null,
+                sources,
+              });
+            }
+            break;
+
+          case 'response.incomplete':
+          case 'response.failed':
+            sseSend(res, 'error', {
+              message: `模型响应${event.type === 'response.failed' ? '失败' : '未完成'}`,
+            });
+            res.end();
+            return;
+
+          default:
+            break;
         }
+      }
 
-        case 'response.output_text.delta':
-          if (event.item_id && !itemFirstDeltaAt.has(event.item_id)) {
-            itemFirstDeltaAt.set(event.item_id, Date.now());
+      if (pendingCalls.length === 0) {
+        return;
+      }
+
+      // 模型请求调用工具（目前只有生图），执行后把 function_call / function_call_output 追加到 input 历史，进入下一轮
+      for (const call of pendingCalls) {
+        input.push({ type: 'function_call', call_id: call.callId, name: call.name, arguments: call.arguments });
+
+        if (call.name === 'generate_image') {
+          sseSend(res, 'image_status', { status: 'generating' });
+          let output;
+          try {
+            let args = {};
+            try {
+              args = JSON.parse(call.arguments || '{}');
+            } catch {
+              args = {};
+            }
+            const referenceImageUrl = args.use_reference_image ? findLatestImageUrl(messages) : null;
+            const imageUrl = await generateImage({ prompt: args.prompt, referenceImageUrl });
+            sseSend(res, 'image_generated', { url: imageUrl, prompt: args.prompt });
+            output = `图片已生成，地址：${imageUrl}`;
+          } catch (err) {
+            sseSend(res, 'image_status', { status: 'failed', message: err.message });
+            output = `图片生成失败：${err.message}`;
           }
-          fullText += event.delta;
-          sseSend(res, 'delta', { text: event.delta });
-          break;
-
-        case 'response.reasoning_text.delta':
-          if (!reasoningTtftSent) {
-            reasoningTtftSent = true;
-            sseSend(res, 'reasoning_ttft', { ms: Date.now() - startedAt });
-          }
-          sseSend(res, 'reasoning_delta', { text: event.delta });
-          break;
-
-        case 'response.completed':
-          sseSend(res, 'done', {
-            fullText,
-            usage: event.response?.usage || null,
-            sources,
-          });
-          break;
-
-        case 'response.incomplete':
-        case 'response.failed':
-          sseSend(res, 'error', {
-            message: `模型响应${event.type === 'response.failed' ? '失败' : '未完成'}`,
-          });
-          break;
-
-        default:
-          break;
+          input.push({ type: 'function_call_output', call_id: call.callId, output });
+        } else {
+          input.push({ type: 'function_call_output', call_id: call.callId, output: `未知工具：${call.name}` });
+        }
       }
     }
+
+    sseSend(res, 'error', { message: '工具调用轮数超出上限' });
   } catch (err) {
     console.error(err);
     sseSend(res, 'error', { message: err?.message || '请求 DeepSeek API 失败' });
