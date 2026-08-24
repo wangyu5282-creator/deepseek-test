@@ -1,13 +1,25 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 import './App.css';
 import { loadConversations, saveConversations, createConversation } from './storage';
+
+function normalizeMathDelimiters(text) {
+  // remark-math 只认 $ / $$，但模型常输出 \( \) \[ \] 这种 LaTeX 原生定界符，这里统一转换一下
+  return text
+    .replace(/\\\[([\s\S]+?)\\\]/g, (_, expr) => `$$${expr}$$`)
+    .replace(/\\\(([\s\S]+?)\\\)/g, (_, expr) => `$${expr}$`);
+}
 
 function Markdown({ children }) {
   if (!children) return null;
   return (
-    <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown>
+    <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
+      {normalizeMathDelimiters(children)}
+    </ReactMarkdown>
   );
 }
 
