@@ -247,6 +247,29 @@ function App() {
     });
   }
 
+  const MAX_IMAGE_DIMENSION = 1280;
+
+  function compressImage(file) {
+    // GIF 用 canvas 重新编码会丢动画，直接跳过压缩
+    if (file.type === 'image/gif') return fileToDataUrl(file);
+
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, MAX_IMAGE_DIMENSION / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.8));
+        URL.revokeObjectURL(img.src);
+      };
+      img.onerror = reject;
+      img.src = URL.createObjectURL(file);
+    });
+  }
+
   async function handleImageSelect(e) {
     const files = Array.from(e.target.files || []);
     e.target.value = '';
@@ -256,7 +279,7 @@ function App() {
       alert('仅支持 JPEG/PNG/GIF/WebP 图片');
     }
     const withDataUrls = await Promise.all(
-      accepted.map(async (f) => ({ dataUrl: await fileToDataUrl(f), name: f.name }))
+      accepted.map(async (f) => ({ dataUrl: await compressImage(f), name: f.name }))
     );
     setPendingImages((prev) => [...prev, ...withDataUrls]);
   }
