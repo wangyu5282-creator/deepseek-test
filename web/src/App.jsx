@@ -27,6 +27,7 @@ function App() {
   const [lastContentTtft, setLastContentTtft] = useState(null);
   const [lastCommentaryTtft, setLastCommentaryTtft] = useState(null);
   const [lastSearchTtft, setLastSearchTtft] = useState(null);
+  const [lastReasoningTtft, setLastReasoningTtft] = useState(null);
   const abortRef = useRef(null);
   const bottomRef = useRef(null);
 
@@ -53,6 +54,7 @@ function App() {
     setLastContentTtft(null);
     setLastCommentaryTtft(null);
     setLastSearchTtft(null);
+    setLastReasoningTtft(null);
   }
 
   function handleDeleteConversation(id) {
@@ -105,9 +107,11 @@ function App() {
     const assistantMessage = {
       role: 'assistant',
       content: '',
+      reasoning: '',
       contentTtftMs: null,
       commentaryTtftMs: null,
       searchTtftMs: null,
+      reasoningTtftMs: null,
       searching: false,
       sources: [],
       searchQueries: [],
@@ -126,6 +130,7 @@ function App() {
     setLastContentTtft(null);
     setLastCommentaryTtft(null);
     setLastSearchTtft(null);
+    setLastReasoningTtft(null);
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -199,6 +204,8 @@ function App() {
       setLastCommentaryTtft(data.ms);
     } else if (eventType === 'search_ttft') {
       setLastSearchTtft(data.ms);
+    } else if (eventType === 'reasoning_ttft') {
+      setLastReasoningTtft(data.ms);
     }
     updateActive((c) => {
       const lastIndex = c.messages.length - 1;
@@ -212,12 +219,16 @@ function App() {
         updated = { ...last, commentaryTtftMs: data.ms };
       } else if (eventType === 'search_ttft') {
         updated = { ...last, searchTtftMs: data.ms };
+      } else if (eventType === 'reasoning_ttft') {
+        updated = { ...last, reasoningTtftMs: data.ms };
       } else if (eventType === 'search') {
         updated = { ...last, searching: data.status !== 'completed' };
       } else if (eventType === 'source') {
         updated = { ...last, sources: [...(last.sources || []), data] };
       } else if (eventType === 'query') {
         updated = { ...last, searchQueries: [...(last.searchQueries || []), ...data.queries] };
+      } else if (eventType === 'reasoning_delta') {
+        updated = { ...last, reasoning: (last.reasoning || '') + data.text };
       } else if (eventType === 'delta') {
         updated = { ...last, content: last.content + data.text };
       } else if (eventType === 'done') {
@@ -376,6 +387,9 @@ function App() {
           {lastSearchTtft !== null && (
             <span className="ttft-badge">搜索 TTFT: {lastSearchTtft} ms</span>
           )}
+          {lastReasoningTtft !== null && (
+            <span className="ttft-badge">思考 TTFT: {lastReasoningTtft} ms</span>
+          )}
           {lastCommentaryTtft !== null && (
             <span className="ttft-badge">旁白 TTFT: {lastCommentaryTtft} ms</span>
           )}
@@ -391,6 +405,12 @@ function App() {
           {active.messages.map((m, idx) => (
             <div key={idx} className={`message ${m.role}`}>
               <div className="message-role">{m.role === 'user' ? '你' : 'DeepSeek'}</div>
+              {m.role === 'assistant' && m.reasoning && (
+                <details className="message-reasoning" open={!m.content}>
+                  <summary>思考过程{m.reasoningTtftMs != null ? `（思考 TTFT: ${m.reasoningTtftMs} ms）` : ''}</summary>
+                  <div className="reasoning-text">{m.reasoning}</div>
+                </details>
+              )}
               <div className="message-content">
                 {m.searching && <div className="searching-indicator">正在联网搜索...</div>}
                 {Array.isArray(m.content) ? (
@@ -436,10 +456,14 @@ function App() {
                 </div>
               )}
               {m.role === 'assistant' &&
-                (m.searchTtftMs != null || m.commentaryTtftMs != null || m.contentTtftMs != null) && (
+                (m.searchTtftMs != null ||
+                  m.reasoningTtftMs != null ||
+                  m.commentaryTtftMs != null ||
+                  m.contentTtftMs != null) && (
                   <div className="message-meta">
                     {[
                       m.searchTtftMs != null ? `搜索 TTFT: ${m.searchTtftMs} ms` : null,
+                      m.reasoningTtftMs != null ? `思考 TTFT: ${m.reasoningTtftMs} ms` : null,
                       m.commentaryTtftMs != null ? `旁白 TTFT: ${m.commentaryTtftMs} ms` : null,
                       m.contentTtftMs != null ? `正文 TTFT: ${m.contentTtftMs} ms` : null,
                     ]

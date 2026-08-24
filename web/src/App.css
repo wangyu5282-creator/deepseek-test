@@ -286,6 +286,32 @@
   margin-bottom: 4px;
 }
 
+.message-reasoning {
+  font-size: 13px;
+  color: var(--text);
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: var(--code-bg);
+}
+
+.message-reasoning summary {
+  cursor: pointer;
+  font-weight: 600;
+  user-select: none;
+}
+
+.message-reasoning .reasoning-text {
+  margin-top: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+  opacity: 0.85;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
 .message-meta {
   font-size: 11px;
   color: var(--text);

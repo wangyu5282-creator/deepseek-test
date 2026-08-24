@@ -80,6 +80,7 @@ app.post('/api/chat', async (req, res) => {
   let contentTtftSent = false;
   let commentaryTtftSent = false;
   let searchTtftSent = false;
+  let reasoningTtftSent = false;
   let fullText = '';
   const sources = [];
   // message item_id -> 该 item 第一个 output_text.delta 到达的时间。
@@ -146,6 +147,14 @@ app.post('/api/chat', async (req, res) => {
           }
           fullText += event.delta;
           sseSend(res, 'delta', { text: event.delta });
+          break;
+
+        case 'response.reasoning_text.delta':
+          if (!reasoningTtftSent) {
+            reasoningTtftSent = true;
+            sseSend(res, 'reasoning_ttft', { ms: Date.now() - startedAt });
+          }
+          sseSend(res, 'reasoning_delta', { text: event.delta });
           break;
 
         case 'response.completed':
