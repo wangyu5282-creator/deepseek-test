@@ -139,6 +139,7 @@ function App() {
       imageError: null,
       sources: [],
       searchQueries: [],
+      searchingKnowledge: false,
     };
 
     setConversations((prev) =>
@@ -263,6 +264,8 @@ function App() {
           generatingImage: false,
           generatedImages: [...(last.generatedImages || []), { url: data.url, prompt: data.prompt }],
         };
+      } else if (eventType === 'knowledge_status') {
+        updated = { ...last, searchingKnowledge: data.status === 'searching' };
       } else if (eventType === 'reasoning_delta') {
         updated = { ...last, reasoning: (last.reasoning || '') + data.text };
       } else if (eventType === 'delta') {
@@ -450,6 +453,7 @@ function App() {
               <div className="message-content">
                 {m.searching && <div className="searching-indicator">正在联网搜索...</div>}
                 {m.generatingImage && <div className="searching-indicator">正在生成图片...</div>}
+                {m.searchingKnowledge && <div className="searching-indicator">正在检索天禧知识库...</div>}
                 {Array.isArray(m.content) ? (
                   <>
                     <div className="message-images">

@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import OpenAI from 'openai';
 import { generateImage, findLatestImageUrl } from './imageGen.js';
+import { searchKnowledge } from './rag/index.js';
 
 const app = express();
 app.use(cors());
@@ -34,6 +35,23 @@ const IMAGE_GEN_TOOL = {
       },
     },
     required: ['prompt'],
+  },
+};
+
+const KNOWLEDGE_TOOL = {
+  type: 'function',
+  name: 'search_tianxi_knowledge',
+  description:
+    '检索“天禧个人超级智能体”与联想集团相关的官方知识库，用于回答关于天禧产品功能、使用方法、AI键/快捷键设置、账号与登录、订阅与能量、故障排查、联想公司介绍等问题。当用户问到天禧是什么、怎么用某个功能、遇到什么问题、或询问联想集团相关信息时调用。',
+  parameters: {
+    type: 'object',
+    properties: {
+      query: {
+        type: 'string',
+        description: '要检索的问题或关键词，尽量使用用户原始问题',
+      },
+    },
+    required: ['query'],
   },
 };
 
@@ -87,7 +105,7 @@ app.post('/api/chat', async (req, res) => {
 
   let input = messages.map((m) => ({ role: m.role, content: toResponsesContent(m.content) }));
 
-  const tools = [IMAGE_GEN_TOOL];
+  const tools = [IMAGE_GEN_TOOL, KNOWLEDGE_TOOL];
   if (webSearch) tools.push({ type: 'web_search' });
 
   const startedAt = Date.now();
@@ -241,6 +259,26 @@ app.post('/api/chat', async (req, res) => {
           } catch (err) {
             sseSend(res, 'image_status', { status: 'failed', message: err.message });
             output = `图片生成失败：${err.message}`;
+          }
+          input.push({ type: 'function_call_output', call_id: call.callId, output });
+        } else if (call.name === 'search_tianxi_knowledge') {
+          sseSend(res, 'knowledge_status', { status: 'searching' });
+          let output;
+          try {
+            let args = {};
+            try {
+              args = JSON.parse(call.arguments || '{}');
+            } catch {
+              args = {};
+            }
+            const hits = searchKnowledge(args.query || '', 3);
+            sseSend(res, 'knowledge_status', { status: 'done', hits: hits.map((h) => ({ id: h.id, question: h.question })) });
+            output = hits.length
+              ? JSON.stringify(hits.map((h) => ({ question: h.question, answer: h.answer })))
+              : '知识库中没有找到相关内容。';
+          } catch (err) {
+            sseSend(res, 'knowledge_status', { status: 'failed', message: err.message });
+            output = `知识库检索失败：${err.message}`;
           }
           input.push({ type: 'function_call_output', call_id: call.callId, output });
         } else {
