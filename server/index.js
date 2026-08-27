@@ -4,6 +4,7 @@ import cors from 'cors';
 import OpenAI from 'openai';
 import { generateImage, findLatestImageUrl } from './imageGen.js';
 import { searchKnowledge } from './rag/index.js';
+import { DEFAULT_SYSTEM_PROMPT_TEMPLATE } from './systemPrompt.js';
 
 const app = express();
 app.use(cors());
@@ -81,7 +82,17 @@ function buildInstructions(base) {
     dateStyle: 'full',
     timeStyle: 'medium',
   }).format(now);
-  return `${base || 'You are a helpful assistant.'}\n\nCurrent date and time: ${beijingTime} (北京时间, UTC+8).`;
+
+  if (base) {
+    return `${base}\n\nCurrent date and time: ${beijingTime} (北京时间, UTC+8).`;
+  }
+
+  return DEFAULT_SYSTEM_PROMPT_TEMPLATE
+    .replace('{{memory}}', '（暂无长期记忆信息）')
+    .replace('{{time}}', `${beijingTime}（北京时间, UTC+8）`)
+    .replace('{{nickname}}', '天禧')
+    .replace('{{address}}', '（未知）')
+    .replace('{{deviceInfo}}', '（未知）');
 }
 
 app.post('/api/login', (req, res) => {
