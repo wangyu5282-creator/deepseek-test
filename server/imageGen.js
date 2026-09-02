@@ -43,7 +43,15 @@ export async function generateImage({ prompt, referenceImageUrl }) {
 
 export function findLatestImageUrl(messages) {
   for (let i = messages.length - 1; i >= 0; i--) {
-    const content = messages[i].content;
+    const message = messages[i];
+
+    // 助手此前用 generate_image 工具生成的图片只记录在 generatedImages 里（供前端展示），
+    // content 里不含图片块，所以要单独检查，否则"在上一张生成图基础上改"这类图生图请求会找不到参考图。
+    if (message.role === 'assistant' && Array.isArray(message.generatedImages) && message.generatedImages.length > 0) {
+      return message.generatedImages[message.generatedImages.length - 1].url;
+    }
+
+    const content = message.content;
     if (!Array.isArray(content)) continue;
     for (let j = content.length - 1; j >= 0; j--) {
       if (content[j].type === 'image' && content[j].imageUrl) {
